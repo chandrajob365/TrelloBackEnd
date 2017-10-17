@@ -50,7 +50,8 @@ exports.getTasks = (boardId, cb) => {
             cardsPromiseList.push(pCard)
           })
           Promise.all(cardsPromiseList).then((cards) => {
-            console.log('task = ', Object.assign(task, cards))
+            console.log('Cards = ', cards)
+            console.log('## task = ', Object.assign(task, {notCards: cards}))
             resolve(task) // -- not working but correct
             // resolve(task['cards'] = cards)  // -- working but not correct
           })

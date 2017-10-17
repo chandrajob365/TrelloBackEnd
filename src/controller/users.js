@@ -2,8 +2,8 @@ const User = require('../models/Schema').User
 console.log('---- User ---- ', User)
 exports.findUser = (emailId, cb) => {
   User.findOne({'emailId': emailId}, (err, user) => {
-    if (err) throw new Error(err)
-    cb(user)
+    if (err) return cb(null, {msg: err})
+    cb(user, null)
   })
 }
 
@@ -15,7 +15,7 @@ exports.createUser = (user, pwd, salt, cb) => {
     password: pwd,
     salt: salt
   }, (err, response) => {
-    if (err) throw new Error('Error in user creation')
-    cb(response)
+    if (err) return cb(null, {msg: 'Error in user creation', err})
+    cb(response, null)
   })
 }
