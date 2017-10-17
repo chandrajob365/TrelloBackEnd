@@ -1,96 +1,163 @@
+var mongoose = require('mongoose')
 const Trello = require('../models/Schema')
 
 exports.getBoards = (emailId, cb) => {
-  let boards = []
-  Trello.User.findOne({emailId: emailId}, (err, user) => {
-    if (err) throw new Error('<getBoards>Error in finding user By ID')
+  Trello.User.findOne({emailId: emailId}, (error, user) => {
+    if (error) return cb(null, {msg: '<Fn: getBoards> Internal DB Error ' + error})
+    if (!user) return cb(null, {msg: 'User Not found'})
+    // Empty Promise List
+    let PromiseList = []
     user.boards.forEach(boardId => {
-      Trello.Board.findOne({_id: boardId}, (err, board) => {
-        if (err) throw new Error('<getBoards>Error in finding board by ID')
-        boards.push(board)
+      // create a promise and add that promise to earlier created promise list
+      let p = new Promise((resolve, reject) => {
+        Trello.Board.findById(new mongoose.Types.ObjectId(boardId), (err, board) => {
+          // resolve or reject the promise
+          if (err) reject(Error('<Fn: getBoards> Error in finding board by ID'))
+          resolve(board)
+        })
       })
+      PromiseList.push(p)
     })
-    cb(boards)
+    // Promise.all (of above created promise list)
+    Promise.all(PromiseList).then((boards) => {
+      return cb(boards, null)
+    })
+    .catch((error) => {
+      return cb(null, {msg: 'Some Promise error  ', error})
+    })
   })
 }
 
 exports.getTasks = (boardId, cb) => {
-  let tasks = []
-  Trello.Board.findOne({_id: boardId}, (err, board) => {
-    if (err) throw new Error('<getTasks>Error in finding board By ID')
+  Trello.Board.findById(new mongoose.Types.ObjectId(boardId), (error, board) => {
+    if (error) return cb(null, {msg: '<Fn: getTasks> Internal DB error', error})
+    if (!board) return cb(null, {msg: 'Board Not found'})
+    let tasksPromiseList = []
     board.taskList.forEach(taskId => {
-      Trello.Task.findOne({_id: taskId}, (err, task) => {
-        if (err) throw new Error('<getTasks>Error in finding task by ID')
-        tasks.push(task)
+      let pTask = new Promise((resolve, reject) => {
+        getTask(taskId, (task) => {
+          if (error) reject(Error('<Fn: getTask> Internal DB error'))// return cb(null, {msg: '<Fn: getTask> Internal DB error', error})
+          if (!task) reject(Error('<Fn: getTask> Task Not found'))// return cb(null, {msg: 'Task Not found'})
+          let cardsPromiseList = []
+          task.cardList.forEach(cardId => {
+            let pCard = new Promise((resolve, reject) => {
+              getCard(cardId, (card, error) => {
+                if (error) reject(Error('<Fn: getCard> Internal DB error'))// return cb(null, {msg: '<Fn: getCard> Internal DB error', error})
+                if (!task) reject(Error('Card Not found')) // return cb(null, {msg: 'Card Not found'})
+                resolve({[cardId]: card})
+              })
+            })
+            cardsPromiseList.push(pCard)
+          })
+          Promise.all(cardsPromiseList).then((cards) => {
+            console.log('task = ', Object.assign(task, cards))
+            resolve(task) // -- not working but correct
+            // resolve(task['cards'] = cards)  // -- working but not correct
+          })
+        })
       })
+      tasksPromiseList.push(pTask)
     })
-    cb(tasks)
+    Promise.all(tasksPromiseList).then((tasks) => {
+      console.log('Tasks = ', tasks)
+      return cb(tasks, null)
+    })
+    .catch(error => {
+      return cb(null, {msg: 'Promise Error : ' + error})
+    })
+  })
+}
+
+const getTask = (taskId, cb) => {
+  Trello.Task.findOne({_id: taskId}, (error, task) => {
+    cb(task, error)
+  })
+}
+
+const getCard = (cardId, cb) => {
+  Trello.Card.findOne({_id: cardId}, (error, card) => {
+    cb(card, error)
   })
 }
 
 exports.getCards = (taskId, cb) => {
-  let cards = []
-  Trello.Task.findOne({_id: taskId}, (err, task) => {
-    if (err) throw new Error('<getTasks>Error in finding board By ID')
+  console.log('<getCards> taskId = ', taskId)
+  getTask(taskId, (task, error) => {
+    if (error) return cb(null, {msg: '<Fn: getTask> Internal DB error', error})
+    if (!task) return cb(null, {msg: 'Task Not found'})
+    let promiseList = []
     task.cardList.forEach(cardId => {
-      Trello.Task.findOne({_id: cardId}, (err, card) => {
-        if (err) throw new Error('<getTasks>Error in finding task by ID')
-        cards.push(card)
+      let cardPromise = new Promise((resolve, reject) => {
+        getCard(cardId, (card, error) => {
+          if (error) reject(Error({msg: '<Fn: getCard> Internal DB error', error}))
+          if (!card) reject(Error({msg: 'Card Not found'}))
+          resolve(card)
+        })
       })
+      promiseList.push(cardPromise)
     })
-    cb(cards)
+    Promise.all(promiseList)
+      .then(cards => {
+        return cb(cards, null)
+      })
+      .catch(error => {
+        return cb(null, {msg: 'Promise Error : ' + error})
+      })
   })
 }
 
-exports.createBoard = (userId, boardName, cb) => {
+exports.createBoard = (emailId, boardName, cb) => {
+  console.log('<trello.js, createBoard> emailId = ', emailId, '  boardName = ', boardName)
   Trello.Board.create({
     boardName: boardName,
     boardDesc: '',
     taskList: []
   }, (err, board) => {
-    if (err) throw new Error('<createBoard> Error in creating new Board')
-    Trello.User.findByIdAndUpdate({_id: userId},
+    if (err) return cb(null, {msg: '<createBoard> Error in creating new Board', err})
+    Trello.User.update({emailId: emailId},
       {$push: {boards: board._id}},
-      {safe: true, upsert: true},
+      {upsert: true, new: true},
       (err, user) => {
-        if (err) throw new Error('<createBoard> Error in inserting new BoardID in User')
-        cb(user, board)
+        if (err) return cb(null, {msg: '<createBoard> Error in inserting new BoardID in User', err})
+        cb(board, null)
       })
   })
 }
 
 exports.createTask = (boardId, taskName, cb) => {
+  console.log('<trello.js, createBoard> boardId = ', boardId, '  taskName = ', taskName)
   Trello.Task.create({
     taskName: taskName,
     taskDesc: '',
-    taskCreationDate: Date.now,
+    taskCreationDate: new Date().toLocaleDateString(),
     cardList: []
   }, (err, task) => {
-    if (err) throw new Error('<createTask> Error in creating new Task')
-    Trello.Board.findByIdAndUpdate({_id: boardId},
+    if (err) return cb(null, {msg: '<createTask> Error in creating new Task', err})
+    Trello.Board.update({_id: boardId},
       {$push: {taskList: task._id}},
-      {safe: true, upsert: true},
+      {upsert: true, new: true},
       (err, board) => {
-        if (err) throw new Error('<createTask> Error in updating Board with new taskId')
-        cb(board, task)
+        if (err) return cb(null, {msg: '<createTask> Error in updating Board with new taskId', err})
+        cb(task, err)
       })
   })
 }
 
-exports.createCard = (taskId, cradName, cb) => {
+exports.createCard = (taskId, cardName, cb) => {
+  console.log('<trello.js, createBoard> taskId = ', taskId, '  cardName = ', cardName)
   Trello.Card.create({
-    cardName: String,
-    cardDesc: String,
-    cardDueDate: new Date(+new Date() + 7 * 24 * 60 * 60 * 1000),
-    cardCreationDate: Date.now
+    cardName: cardName,
+    cardDesc: '',
+    cardDueDate: new Date(new Date() + (7 * 24 * 60 * 60 * 1000)),
+    cardCreationDate: new Date()
   }, (err, card) => {
-    if (err) throw new Error('<createCard> Error in creating new Card')
-    Trello.Task.findByIdAndUpdate({_id: taskId},
+    if (err) return cb(null, {msg: '<createCard> Error in creating new Card', err})
+    Trello.Task.update({_id: taskId},
       {$push: {cardList: card._id}},
-      {safe: true, upsert: true},
+      {upsert: true, new: true},
     (err, task) => {
-      if (err) throw new Error('<createCard> Error in updating Task with new CardId')
-      cb(task, card)
+      if (err) return cb(null, {msg: '<createCard> Error in updating Task with new CardId', err})
+      cb(card, err)
     })
   })
 }
@@ -100,18 +167,18 @@ exports.updateBoard = (boardId, boardName, cb) => {
     {$set: {boardName: boardName}},
     {safe: true, upsert: true},
     (err, board) => {
-      if (err) throw new Error('<updateBoard> Error in updating board')
-      cb(board)
+      if (err) return cb(null, {msg: '<updateBoard> Error in updating board', err})
+      cb(board, null)
     })
 }
 
 exports.updateTask = (taskId, taskName, cb) => {
   Trello.Task.findByIdAndUpdate({_id: taskId},
-    {$set: {boardName: taskName}},
+    {$set: {taskName: taskName}},
     {safe: true, upsert: true},
     (err, task) => {
-      if (err) throw new Error('<updateBoard> Error in updating task')
-      cb(task)
+      if (err) return cb(null, {msg: '<updateTask> Error in updating task', err})
+      cb(task, err)
     })
 }
 
@@ -120,43 +187,45 @@ exports.updateCard = (cardId, cardDesc, cardDueDate, cb) => {
     {$set: {cardDesc: cardDesc, cardDueDate: cardDueDate}},
     {safe: true, upsert: true},
     (err, card) => {
-      if (err) throw new Error('<updateBoard> Error in updating Card')
-      cb(card)
+      if (err) return cb(null, {msg: '<updateCard> Error in updating Card', err})
+      cb(card, err)
     })
 }
 
-exports.deleteBoard = (userId, boardId, cb) => {
+exports.deleteBoard = (emailId, boardId, cb) => {
   Trello.Board.findByIdAndRemove({_id: boardId}, (err, obj) => {
-    if (err) throw new Error('<deleteBoard> Error in deleting board')
-    Trello.User.findOneAndUpdate({_id: userId},
+    if (err) return cb(null, {msg: '<deleteBoard> Error in deleting board', err})
+    Trello.User.findOneAndUpdate({emailId: emailId},
       {$pull: {boards: boardId}},
     (err, obj) => {
-      if (err) throw new Error('<deleteBoard> Error in updating User boardList')
-      cb(obj)
+      if (err) return cb(null, {msg: '<deleteBoard> Error in updating User boardList', err})
+      cb(obj, null)
     })
   })
 }
 
 exports.deleteTask = (boardId, taskId, cb) => {
   Trello.Task.findByIdAndRemove({_id: taskId}, (err, obj) => {
-    if (err) throw new Error('<deleteTask> Error in deleting task')
+    if (err) return cb(null, {msg: '<deleteTask> Error in deleting task', err})
     Trello.Board.findOneAndUpdate({_id: boardId},
       {$pull: {taskList: taskId}},
     (err, obj) => {
-      if (err) throw new Error('<deleteTask> Error in updating Board taskList')
-      cb(obj)
+      if (err) return cb(null, {msg: '<deleteTask> Error in updating Board taskList', err})
+      cb(obj, null)
     })
   })
 }
 
 exports.deleteCard = (taskId, cardId, cb) => {
   Trello.Card.findByIdAndRemove({_id: cardId}, (err, obj) => {
-    if (err) throw new Error('<deleteCard> Error in deleting card')
+    if (err) return cb(null, {msg: '<deleteCard> Error in deleting card', err})
     Trello.Task.findOneAndUpdate({_id: taskId},
       {$pull: {cardList: cardId}},
     (err, obj) => {
-      if (err) throw new Error('<deleteCard> Error in updating Task cardList')
-      cb(obj)
+      if (err) return cb(null, {msg: '<deleteCard> Error in updating Task cardList', err})
+      cb(obj, null)
     })
   })
 }
+
+exports.getCard = getCard
