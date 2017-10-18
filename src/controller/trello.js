@@ -36,6 +36,7 @@ exports.getTasks = (boardId, cb) => {
     board.taskList.forEach(taskId => {
       let pTask = new Promise((resolve, reject) => {
         getTask(taskId, (task) => {
+          task = task.toObject()
           if (error) reject(Error('<Fn: getTask> Internal DB error'))// return cb(null, {msg: '<Fn: getTask> Internal DB error', error})
           if (!task) reject(Error('<Fn: getTask> Task Not found'))// return cb(null, {msg: 'Task Not found'})
           let cardsPromiseList = []
@@ -50,10 +51,7 @@ exports.getTasks = (boardId, cb) => {
             cardsPromiseList.push(pCard)
           })
           Promise.all(cardsPromiseList).then((cards) => {
-            console.log('Cards = ', cards)
-            console.log('## task = ', Object.assign(task, {notCards: cards}))
-            resolve(task) // -- not working but correct
-            // resolve(task['cards'] = cards)  // -- working but not correct
+            resolve(Object.assign(task, {'cards': cards}))
           })
         })
       })
@@ -70,13 +68,13 @@ exports.getTasks = (boardId, cb) => {
 }
 
 const getTask = (taskId, cb) => {
-  Trello.Task.findOne({_id: taskId}, (error, task) => {
+  Trello.Task.findById({_id: taskId}, (error, task) => {
     cb(task, error)
   })
 }
 
 const getCard = (cardId, cb) => {
-  Trello.Card.findOne({_id: cardId}, (error, card) => {
+  Trello.Card.findById({_id: cardId}, (error, card) => {
     cb(card, error)
   })
 }
